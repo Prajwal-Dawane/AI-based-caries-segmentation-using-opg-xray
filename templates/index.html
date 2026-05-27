@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dental Caries Segmentation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(135deg, #e0e7ff 0%, #f3e8ff 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    .fade-in { animation: fadeIn 1s ease-in-out; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ===== Fullscreen Modal ===== */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0; top: 0;
+      width: 100%; height: 100%;
+      background-color: rgba(0, 0, 0, 0.95);
+      cursor: grab;
+      overflow: hidden;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal img {
+      transform-origin: center center;
+      max-width: none;
+      max-height: none;
+      border-radius: 12px;
+      cursor: grab;
+      user-select: none;
+      transition: transform 0.05s ease-out;
+    }
+    .modal:active img { cursor: grabbing; }
+
+    /* ===== Close Button ===== */
+    .close-btn {
+      position: absolute;
+      top: 20px;
+      right: 30px;
+      color: white;
+      font-size: 32px;
+      font-weight: bold;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 50%;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .close-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* ===== Loading Spinner ===== */
+    .spinner {
+      border: 4px solid #e0e7ff;
+      border-top: 4px solid #6366f1;
+      border-radius: 50%;
+      width: 40px; height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 1rem auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="bg-white rounded-2xl shadow-2xl p-10 max-w-4xl w-full fade-in">
+  <h1 class="text-4xl font-extrabold text-center text-indigo-700 mb-8">
+    🦷 Dental Caries Segmentation
+  </h1>
+
+  {% if model_error %}
+  <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-lg">
+    <p class="font-bold">Model Load Error</p>
+    <p>{{ model_error }}</p>
+  </div>
+  {% endif %}
+
+  {% if error_message %}
+  <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-lg">
+    <p class="font-bold">Prediction Error</p>
+    <p>{{ error_message }}</p>
+  </div>
+  {% endif %}
+
+  <!-- Upload Form -->
+  <form id="uploadForm" action="{{ url_for('predict') }}" method="post" enctype="multipart/form-data" class="text-center mb-10">
+    <label for="file-upload" id="uploadBox" class="cursor-pointer flex flex-col items-center justify-center border-2 border-dashed border-indigo-300 bg-indigo-50 rounded-xl py-10 hover:bg-indigo-100 transition duration-300">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-14 w-14 text-indigo-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 008 0M7 16V8m0 0L4 11m3-3l3 3M17 8v8m0 0l3-3m-3 3l-3-3" />
+      </svg>
+      <span class="text-lg font-medium text-indigo-800">Click or Drop Image to Upload</span>
+      <input id="file-upload" name="file" type="file" required class="hidden" onchange="previewImage(this)">
+      <span id="filename-display" class="text-sm text-gray-500 mt-2 italic">No file selected</span>
+      <div id="preview-container" class="mt-4 hidden">
+        <img id="image-preview" class="max-h-48 mx-auto rounded-lg border border-gray-300 shadow-sm">
+      </div>
+    </label>
+
+    <div id="loadingIndicator" class="hidden mt-6 text-center">
+      <div class="spinner"></div>
+      <p class="text-indigo-600 font-medium mt-2">Processing image... please wait</p>
+    </div>
+
+    <button type="submit"
+      class="mt-6 px-10 py-3 bg-indigo-600 text-white font-semibold rounded-full shadow-md hover:bg-indigo-700 hover:scale-105 transform transition duration-200 ease-in-out"
+      {% if model_error %}disabled{% endif %}>
+      Perform Segmentation
+    </button>
+  </form>
+
+  {% if uploaded_image and result_image %}
+  <div class="fade-in">
+    <h2 class="text-2xl font-semibold text-center text-gray-700 mb-6">Segmentation Results</h2>
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="bg-gray-50 p-4 rounded-xl shadow-inner border border-gray-200 text-center">
+        <h3 class="text-center text-gray-600 font-medium mb-2">Original Image</h3>
+        <img src="{{ uploaded_image }}" alt="Uploaded Image"
+             class="w-full rounded-lg cursor-zoom-in transition transform hover:scale-[1.02]"
+             onclick="openModal('{{ uploaded_image }}')">
+      </div>
+      <div class="bg-gray-50 p-4 rounded-xl shadow-inner border border-gray-200 text-center">
+        <h3 class="text-center text-gray-600 font-medium mb-2">Segmented Result</h3>
+        <img src="{{ result_image }}" alt="Result Image"
+             class="w-full rounded-lg cursor-zoom-in transition transform hover:scale-[1.02]"
+             onclick="openModal('{{ result_image }}')">
+      </div>
+    </div>
+
+    <div class="mt-10 bg-indigo-50 p-6 rounded-xl border border-indigo-200">
+      <h3 class="text-xl font-bold text-indigo-700 mb-4 text-center">Caries Classification Key</h3>
+      <div class="grid sm:grid-cols-3 gap-4 text-gray-700 text-sm font-medium">
+        <div class="flex items-center justify-center"><span class="w-4 h-4 rounded-full bg-yellow-400 border-2 border-yellow-600 mr-2"></span>C1: Shallow Enamel Caries</div>
+        <div class="flex items-center justify-center"><span class="w-4 h-4 rounded-full bg-orange-500 border-2 border-orange-700 mr-2"></span>C2: Moderate Dentin Caries</div>
+        <div class="flex items-center justify-center"><span class="w-4 h-4 rounded-full bg-red-600 border-2 border-red-800 mr-2"></span>C3: Deep Caries (Near Pulp)</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Fullscreen Modal -->
+<div id="imgModal" class="modal" onclick="closeModal(event)">
+  <span class="close-btn" onclick="closeModal(event)">&times;</span>
+  <img id="modalImage" src="#" alt="Fullscreen Image">
+</div>
+
+<script>
+let scale = 1, isDragging = false, startX, startY, originX = 0, originY = 0;
+
+function previewImage(input) {
+  const display = document.getElementById('filename-display');
+  const previewContainer = document.getElementById('preview-container');
+  const preview = document.getElementById('image-preview');
+  if (input.files && input.files[0]) {
+    const file = input.files[0];
+    display.innerText = file.name;
+    const reader = new FileReader();
+    reader.onload = e => {
+      preview.src = e.target.result;
+      previewContainer.classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
+  } else {
+    display.innerText = "No file selected";
+    previewContainer.classList.add('hidden');
+  }
+}
+
+document.getElementById('uploadForm').addEventListener('submit', () => {
+  document.getElementById('loadingIndicator').classList.remove('hidden');
+});
+
+function openModal(src) {
+  const modal = document.getElementById('imgModal');
+  const modalImg = document.getElementById('modalImage');
+  modalImg.src = src;
+  modal.style.display = "flex";
+  resetTransform();
+}
+
+function closeModal(e) {
+  if (e.target.id === 'imgModal' || e.target.classList.contains('close-btn')) {
+    document.getElementById('imgModal').style.display = "none";
+  }
+}
+
+function resetTransform() {
+  scale = 1; originX = 0; originY = 0;
+  const img = document.getElementById('modalImage');
+  img.style.transform = `translate(0px, 0px) scale(1)`;
+}
+
+const modalImg = document.getElementById('modalImage');
+
+modalImg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const zoomSpeed = 0.0015;
+  scale += e.deltaY * -zoomSpeed;
+  scale = Math.min(Math.max(0.5, scale), 6);
+  modalImg.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
+});
+
+modalImg.addEventListener('mousedown', e => {
+  isDragging = true;
+  startX = e.clientX - originX;
+  startY = e.clientY - originY;
+  modalImg.style.cursor = "grabbing";
+});
+
+modalImg.addEventListener('mouseup', () => { isDragging = false; modalImg.style.cursor = "grab"; });
+modalImg.addEventListener('mouseleave', () => { isDragging = false; modalImg.style.cursor = "grab"; });
+modalImg.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  e.preventDefault();
+  const moveSpeed = 1.2;
+  originX = e.clientX - startX;
+  originY = e.clientY - startY;
+  modalImg.style.transform = `translate(${originX * moveSpeed}px, ${originY * moveSpeed}px) scale(${scale})`;
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal({ target: { id: 'imgModal' } });
+  const step = 50;
+  if (document.getElementById('imgModal').style.display === 'flex') {
+    if (e.key === 'ArrowUp') originY += step;
+    if (e.key === 'ArrowDown') originY -= step;
+    if (e.key === 'ArrowLeft') originX += step;
+    if (e.key === 'ArrowRight') originX -= step;
+    modalImg.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
+  }
+});
+</script>
+
+</body>
+</html>
